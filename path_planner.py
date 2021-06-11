@@ -1,5 +1,4 @@
 import cv2
-from google.colab.patches import cv2_imshow
 import numpy as np
 import math 
 
@@ -78,9 +77,56 @@ def scale_grid(all_bots, image):
     for j in range(robotsize):
       for bot in scaledbots:
         smallgrid[i+bot[1],j+bot[0]] = 255
-  cv2_imshow(smallgrid)
 
   return(smallgrid, scaledbots)
+# This code looks at angle as well
+# The goal of this is to rectify the model used for path planning with how the robot actually moves
+# Now position will consist of three dimensions: [x,y,angle]
+# Assume an 8-connected grid
+
+class Node():
+    """A node class for A* Pathfinding"""
+    def __init__(self, parent=None, position=None):
+        self.parent = parent
+        self.position = position
+
+        self.g = 0
+        self.h = 0
+        self.f = 0
+
+    def __eq__(self, other):
+        return self.position == other.position
+
+    def __hash__(self):               #<-- added a hash method
+        return hash(self.position)
+
+def get_adjacent_squares(position):
+    """ based on the nonholonomic robot motion return adjacent squares based on position """
+
+    x,y,theta = position
+    neighbors = []
+    # case 1: turn in place
+    for angle in range(0,361, 45):  # loop through all possible angles in 8-grid
+        neighbors.append((x, y, angle))
+    
+    # case 2: move forward
+    # 0 is left 90 is up 180 is right and 270 is down 
+    # Assuming positive is 1
+    forward_delta = {
+        0: [-1,0],
+        45: [-1,1],
+        90: [0,1],
+        135: [1,1],
+        180: [1,0],
+        225: [1,-1],
+        270: [0,-1],
+        315: [-1,-1],
+        360: [-1,0]
+    }
+    dx, dy = forward_delta[theta]
+    neighbors.append((x+dx, y+dy, theta))
+
+    return neighbors
 
 def astar(maze, start, end):
     """Returns a list of tuples as a path from the given start to the given end in the given maze"""
@@ -165,22 +211,36 @@ def astar(maze, start, end):
             open_list.append(child)
 
 def rescale_paths(plannedpaths):
-  rescaledpath = []
-  for path in plannedpaths:
-    x = path[0]
-    y = path[1]
-    angle = path[2]
-    x = x*10
-    y = y*10
-    botpath = (x,y,angle)
-    rescaledpath.append(botpath)
-  return rescaledpath
+  rescaledpath_multi = []
+  for robot in plannedpaths:
+    rescaledpath = []
+    for path in robot:
+      x = path[0]
+      y = path[1]
+      angle = path[2]
+      x = x*10
+      y = y*10
+      botpath = (x,y,angle)
+      rescaledpath.append(botpath)
+    rescaledpath_multi.append(rescaledpath)
+  return rescaledpath_multi
+
+def simplify_path(rescaledpath):
+  simplepath_multi = []
+  for path in rescaledpath:
+    compare = path[0]
+    simplepath = [path[0]]
+    for coord in path:
+      if (coord[2] != compare[2]):
+        compare = coord
+        simplepath.append(compare)
+    simplepath_multi.append(simplepath)
+  return simplepath_multi
 
 def main():
-  image = cv2.imread('images/chairbot_noAR_1.png')
+  image = cv2.imread('images/chairbot_noAR_4.png')
   all_robots = process_robots(_find_chairbots(image))
   scaledgrid, scaledbots = scale_grid(all_robots, image)
-  print(scaledbots)
 
   plannedpaths = []
   for bot in scaledbots:
@@ -191,7 +251,10 @@ def main():
     end = (0,0,0)
     botpath = astar(scaledgrid, start, end)
     plannedpaths.append(botpath)
-  
-  return(rescale_paths(plannedpaths))
+
+  rescaledpath = rescale_paths(plannedpaths)
+  simplepath = simplify_path(rescaledpath)
+  print(simplepath)
+  return(simplepath)
 
 main()
